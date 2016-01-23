@@ -12,15 +12,15 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import nvim._
 
-object Neovim  {
+object Example {
 
   def main(args : Array[String]) { 
     val host = "127.0.0.1"
     val port = 8000
 
-    Nvim( new Connection( host, port) ).sendVimCommand("vsplit")
+    val nv = Nvim( new Connection( host, port) )
+    nv.sendVimCommand("vsplit")
 
-    println(s"fuuuuuu")
   }
 
 }

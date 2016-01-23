@@ -31,8 +31,8 @@ final class Connection(host: String, port: Int) extends LazyLogging {
   val ResponseId = 1
   val NotificationId = 2
 
-  private val requests = TrieMap[Int, Response ⇒ Unit]()
-  private val notificationHandlers: mutable.Set[Notification ⇒ Unit] = {
+  private val requests = TrieMap[Int, Response => Unit]()
+  private val notificationHandlers: mutable.Set[Notification => Unit] = {
     import scala.collection.JavaConverters._
     new ConcurrentSkipListSet().asScala
   }
@@ -57,42 +57,42 @@ final class Connection(host: String, port: Int) extends LazyLogging {
      */
     def lookAheadType(): Int = {
       unpacker.unpackArrayHeader()
-      val tpe = unpacker.unpackInt()
-      val f = classOf[MessageUnpacker].getDeclaredField("position")
-      f.setAccessible(true)
-      val pos = f.getInt(unp)
-      f.setInt(unp, pos-2)
-      tpe
+      val _type = unpacker.unpackInt()
+      val _field = classOf[MessageUnpacker].getDeclaredField("position")
+      _field.setAccessible(true)
+      val pos = _field.getInt(unp)
+      _field.setInt(unp, pos-2)
+      _type
     }
 
     lookAheadType() match {
-      case ResponseId ⇒
+      case ResponseId =>
         MsgpackCodec[Response].unpack(unpacker) match {
-          case scalaz.-\/(e) ⇒
+          case scalaz.-\/(e) =>
             logger.error("Couldn't unpack response", e)
 
-          case scalaz.\/-(resp) ⇒
+          case scalaz.\/-(resp) =>
             logger.debug(s"retrieved: $resp")
             requests.remove(resp.id) match {
-              case Some(f) ⇒
-                f(resp)
-              case None ⇒
+              case Some(_field) =>
+                _field(resp)
+              case None =>
                 logger.warn(s"The following response is ignored because its ID '${resp.id}' is unexpected: $resp")
             }
         }
 
-      case NotificationId ⇒
+      case NotificationId =>
         MsgpackCodec[Notification].unpack(unpacker) match {
-          case scalaz.-\/(e) ⇒
+          case scalaz.-\/(e) =>
             logger.error("Couldn't unpack response", e)
 
-          case scalaz.\/-(notification) ⇒
+          case scalaz.\/-(notification) =>
             logger.debug(s"retrieved: $notification")
             notificationHandlers foreach (_(notification))
         }
 
-      case tpe ⇒
-        logger.error(s"Unknow type: $tpe", new Throwable)
+      case _type =>
+        logger.error(s"Unknow type: ${_type}", new Throwable)
     }
 
     if (unp.hasNext())
@@ -103,23 +103,24 @@ final class Connection(host: String, port: Int) extends LazyLogging {
    * Adds a new notification handler and notifies it for every incoming
    * notification event. If the handler is already added, it is not added again.
    */
-  def addNotificationHandler(handler: Notification ⇒ Unit): Unit = {
+  def addNotificationHandler(handler: Notification => Unit): Unit = {
     notificationHandlers += handler
   }
 
   /**
    * Removes the notification handler from the list of registered handlers.
    */
-  def removeNotificationHandler(handler: Notification ⇒ Unit): Unit = {
+  def removeNotificationHandler(handler: Notification => Unit): Unit = {
     notificationHandlers -= handler
   }
 
   /**
    * Sends a [[nvim.internal.Notification]] to Nvim.
    */
-  def sendNotification[A]
-      (method: String, params: MsgpackUnion*)
-      : Unit = {
+  def sendNotification[A](
+    method: String,
+    params: MsgpackUnion*
+  ) : Unit = {
     val ps = MsgpackUnion.array(params.toList)
     val req = Notification(2, method, ps)
 
@@ -135,33 +136,33 @@ final class Connection(host: String, port: Int) extends LazyLogging {
    * the response. `converter` is used to convert the data that is sent over the
    * wire into the actual value that is expected.
    */
-  def sendRequest[A]
-      (command: String, params: MsgpackUnion*)
-      (converter: PartialFunction[MsgpackUnion, A])
-      : Future[A] = {
+  def sendRequest[A](
+    command: String,
+    params: MsgpackUnion*
+  ) (converter: PartialFunction[MsgpackUnion, A] ) : Future[A] = {
     val id = gen.nextId()
     val ps = MsgpackUnion.array(params.toList)
     val req = Request(0, id, command, ps)
 
-    val p = Promise[A]
-    val f: Response ⇒ Unit = { resp ⇒
+    val promise = Promise[A]
+    val _field: Response => Unit = { resp =>
       if (!converter.isDefinedAt(resp.result))
-        p.failure(new UnexpectedResponse(resp.result.toString))
+        promise.failure(new UnexpectedResponse(resp.result.toString))
       else
         Try(converter(resp.result)) match {
-          case Success(value) => p.success(value)
-          case Failure(f) => p.failure(f)
+          case Success(value) => promise.success(value)
+          case Failure(f) => promise.failure(f)
         }
     }
 
     val bytes = MsgpackCodec[Request].toBytes(req, new Msgpack07Packer)
-    requests += req.id → f
+    requests += req.id -> _field
     logger.debug(s"sending: $req")
     val out = socket.getOutputStream
     out.write(bytes)
     out.flush()
 
-    p.future
+    promise.future
   }
 
   def close(): Unit =
